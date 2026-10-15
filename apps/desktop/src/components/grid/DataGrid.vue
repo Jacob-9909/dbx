@@ -47,7 +47,6 @@ import {
   ListTree,
   Maximize2,
   RefreshCw,
-  RefreshCcw,
   TableProperties,
   Network,
   UserRound,
@@ -136,6 +135,7 @@ import {
   shouldIncludeSyntheticRowId,
 } from "@/lib/table/tableEditing";
 import { buildDataGridConditionalUpdateSql, buildDataGridContextFilterCondition, buildDataGridCountSql, buildHiveTablePropertiesSql, type DataGridContextFilterMode } from "@/lib/dataGrid/dataGridSql";
+import { sumGridCountValues } from "@/lib/dataGrid/dataGridCountValue";
 import {
   buildVisibleTransposeRows,
   averageTransposeRecordWidth,
@@ -4167,7 +4167,8 @@ async function lastPage() {
       if (!sql || generation !== manualTotalRowCountGeneration) return;
       const result = await api.executeQuery(props.connectionId, props.executionDatabase ?? props.database ?? "", sql, countTarget.schema, undefined, dataGridCountQueryOptions(connectionStore.getConfig(props.connectionId), settingsStore.editorSettings.globalQueryTimeoutSecs));
       if (generation !== manualTotalRowCountGeneration) return;
-      const total = Number(result.rows?.[0]?.[0] ?? 0);
+      // InfluxQL aggregates return one count per field column with a leading time cell.
+      const total = sumGridCountValues(result.rows?.[0]) ?? 0;
       if (!Number.isFinite(total) || total < 0) return;
       manualTotalRowCount.value = total;
       jumpToCountedLastPage(total);
@@ -4239,7 +4240,8 @@ async function calculateTotalRowCount() {
     if (!countTarget?.sql || generation !== manualTotalRowCountGeneration) return;
     const result = await api.executeQuery(props.connectionId, props.executionDatabase ?? props.database ?? "", countTarget.sql, countTarget.schema, undefined, dataGridCountQueryOptions(connectionStore.getConfig(props.connectionId), settingsStore.editorSettings.globalQueryTimeoutSecs));
     if (generation !== manualTotalRowCountGeneration) return;
-    const total = Number(result.rows?.[0]?.[0] ?? 0);
+    // InfluxQL returns zero rows when nothing matches instead of a count of 0.
+    const total = sumGridCountValues(result.rows?.[0]) ?? 0;
     if (Number.isFinite(total) && total >= 0) {
       manualTotalRowCount.value = total;
     }
@@ -8008,8 +8010,8 @@ function onCanvasScroll(event: Event) {
   }
   if (scrollTopChanged || viewportHeightChanged) {
     updateGridVerticalScrollbar(scroller);
-    maybeCheckInfiniteScroll(scroller);
   }
+  maybeCheckInfiniteScroll(scroller);
   if (viewportWidthChanged || viewportHeightChanged) {
     const gutter = scrollbarGutterWidth(scroller);
     if (gridScrollbarGutter.value !== gutter) gridScrollbarGutter.value = gutter;
@@ -9891,8 +9893,8 @@ async function previewConditionalBulkEditMatchCount() {
       whereInput,
     });
     const result = await api.executeQuery(props.connectionId, props.executionDatabase ?? props.database ?? "", sql, undefined, undefined, dataGridCountQueryOptions(connectionStore.getConfig(props.connectionId), settingsStore.editorSettings.globalQueryTimeoutSecs));
-    const count = Number(result.rows?.[0]?.[0] ?? 0);
-    if (!Number.isFinite(count) || count < 0) throw new Error("Invalid row count returned by the database");
+    const count = sumGridCountValues(result.rows?.[0]);
+    if (count === undefined || count < 0) throw new Error("Invalid row count returned by the database");
     if (requestId !== conditionalBulkEditMatchCountRequestId) return;
     conditionalBulkEditMatchCount.value = count;
   } catch (error: any) {
@@ -15865,23 +15867,17 @@ useUpdateBlocker(() => (hasPendingChanges.value || hasPendingDataEditorDraft.val
               count: result.rows.length,
             })
           }}
-          <i18n-t v-if="showRerunTotalCountAction && !(totalRowCountBusy && !manualTotalRowCountLoading)" keypath="grid.totalRowCountWithAction" tag="span" class="text-muted-foreground/70">
-            <template #button>
-              <button
-                type="button"
-                class="mr-1 inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm align-middle text-muted-foreground/70 hover:bg-gray-200 hover:text-foreground disabled:pointer-events-none disabled:opacity-50 dark:hover:bg-gray-800"
-                :disabled="manualTotalRowCountLoading"
-                :aria-busy="manualTotalRowCountLoading ? 'true' : undefined"
-                :title="manualTotalRowCountLoading ? t('grid.totalRowCountLoading') : t('grid.calculateTotalRows')"
-                :aria-label="manualTotalRowCountLoading ? t('grid.totalRowCountLoading') : t('grid.calculateTotalRows')"
-                @click="calculateTotalRowCount"
-              >
-                <Loader2 v-if="manualTotalRowCountLoading" aria-hidden="true" class="h-3 w-3 animate-spin" />
-                <RefreshCcw v-else aria-hidden="true" class="h-3 w-3" />
-              </button>
-            </template>
-            <template #count>{{ displayedTotalRowCount }}</template>
-          </i18n-t>
+          <button
+            v-if="showRerunTotalCountAction && !(totalRowCountBusy && !manualTotalRowCountLoading)"
+            type="button"
+            class="text-muted-foreground/70 underline underline-offset-2 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            :disabled="manualTotalRowCountLoading"
+            :aria-busy="manualTotalRowCountLoading ? 'true' : undefined"
+            :title="manualTotalRowCountLoading ? t('grid.totalRowCountLoading') : t('grid.calculateTotalRows')"
+            @click="calculateTotalRowCount"
+          >
+            {{ t(totalRowCountLabelKey, { count: displayedTotalRowCount }) }}
+          </button>
           <span v-else-if="typeof displayedTotalRowCount === 'number' && displayedTotalRowCount >= 0" class="text-muted-foreground/70">{{ t(totalRowCountLabelKey, { count: displayedTotalRowCount }) }}</span>
           <span v-if="totalRowCountBusy && !(showRerunTotalCountAction && manualTotalRowCountLoading)" class="text-muted-foreground/70">
             {{ t("grid.totalRowCountLoading") }}
