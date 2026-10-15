@@ -3070,8 +3070,8 @@ fn regex_like_local_datetime(text: &str) -> Option<Rfc3339Parts> {
     if bytes.len() < 19 || bytes.get(13) != Some(&b':') || bytes.get(16) != Some(&b':') {
         return None;
     }
-    let time = &text[11..19];
-    let rest = &text[19..];
+    let time = text.get(11..19)?;
+    let rest = text.get(19..)?;
     let fraction = if let Some(rest) = rest.strip_prefix('.') {
         let digit_count = rest.chars().take_while(|ch| ch.is_ascii_digit()).count();
         if digit_count == 0 || digit_count > 9 || digit_count != rest.len() {
@@ -3320,8 +3320,8 @@ fn regex_like_rfc3339(text: &str) -> Option<Rfc3339Parts> {
         return None;
     }
     let date = &text[0..10];
-    let time = &text[11..19];
-    let rest = &text[19..];
+    let time = text.get(11..19)?;
+    let rest = text.get(19..)?;
     let (fraction, zone) = if let Some(rest) = rest.strip_prefix('.') {
         let digit_count = rest.chars().take_while(|ch| ch.is_ascii_digit()).count();
         if digit_count == 0 || digit_count > 9 {
@@ -3395,8 +3395,8 @@ fn parse_tdengine_timestamp(text: &str) -> Option<(String, String, Option<String
         return None;
     }
     let date = text[0..10].to_string();
-    let time = text[11..19].to_string();
-    let rest = &text[19..];
+    let time = text.get(11..19)?.to_string();
+    let rest = text.get(19..)?;
     if rest.is_empty() {
         return Some((date, time, None));
     }
@@ -7837,6 +7837,21 @@ mod tests {
             format_grid_sql_literal(&json!("2026-05-12 00:00:00.123456"), Some(DatabaseType::Mysql), None),
             "'2026-05-12 00:00:00.123456'"
         );
+    }
+
+    #[test]
+    fn keeps_temporal_like_text_with_multibyte_seconds_verbatim() {
+        let date = column("event_day", "DATE", true, None);
+        let text = "2026-05-12 00:00:0５";
+        for (database_type, column_info) in
+            [(DatabaseType::Mysql, None), (DatabaseType::Tdengine, None), (DatabaseType::Oracle, Some(&date))]
+        {
+            assert_eq!(
+                format_grid_sql_literal(&json!(text), Some(database_type), column_info),
+                format!("'{text}'"),
+                "{database_type:?}"
+            );
+        }
     }
 
     #[test]
