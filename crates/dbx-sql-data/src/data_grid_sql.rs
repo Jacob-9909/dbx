@@ -3054,7 +3054,7 @@ fn regex_like_local_datetime(text: &str) -> Option<Rfc3339Parts> {
     if bytes.len() < 10 || bytes.get(4) != Some(&b'-') || bytes.get(7) != Some(&b'-') {
         return None;
     }
-    let date = &text[0..10];
+    let date = text.get(0..10)?;
     if bytes.len() == 10 {
         return Some(Rfc3339Parts {
             date: date.to_string(),
@@ -7848,6 +7848,19 @@ mod tests {
         {
             assert_eq!(
                 format_grid_sql_literal(&json!(text), Some(database_type), column_info),
+                format!("'{text}'"),
+                "{database_type:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_temporal_like_text_with_multibyte_date_field_verbatim() {
+        let date = column("event_day", "DATE", true, None);
+        let text = "2026-05-１２ 00:00:00";
+        for database_type in [DatabaseType::Oracle, DatabaseType::OceanbaseOracle] {
+            assert_eq!(
+                format_grid_sql_literal(&json!(text), Some(database_type), Some(&date)),
                 format!("'{text}'"),
                 "{database_type:?}"
             );
